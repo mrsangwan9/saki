@@ -1,3 +1,4 @@
+```js
 /**
  * server.js
  * Minimal 1-to-1 WebSocket relay chat server.
@@ -6,6 +7,7 @@
  * - Assigns each connected client a simple unique user ID.
  * - Relays any text message received from one client to the other.
  * - Handles connect, disconnect, and message events.
+ * - Uses heartbeat checks to remove stale/dead connections.
  *
  * No database, no auth, no voice/video/WebRTC — plain text relay only.
  */
@@ -44,6 +46,7 @@ function getOtherClient(ws) {
 
 function broadcastStatus() {
   const bothConnected = clients.size === MAX_CLIENTS;
+
   for (const [clientWs, info] of clients) {
     send(clientWs, {
       type: 'status',
@@ -54,28 +57,48 @@ function broadcastStatus() {
 }
 
 wss.on('connection', (ws) => {
+  // Heartbeat state for detecting stale connections.
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   // Reject extra connections beyond the 2-user limit.
   if (clients.size >= MAX_CLIENTS) {
-    send(ws, { type: 'error', message: 'Chat room is full (2 users max).' });
+    send(ws, {
+      type: 'error',
+      message: 'Chat room is full (2 users max).'
+    });
+
     ws.close(1008, 'Room full');
+
     console.log('Rejected connection: room already has 2 users.');
     return;
   }
 
   const userId = generateUserId();
+
   clients.set(ws, { id: userId });
-  console.log(`Client connected: ${userId} (${clients.size}/${MAX_CLIENTS})`);
+
+  console.log(
+    `Client connected: ${userId} (${clients.size}/${MAX_CLIENTS})`
+  );
 
   // Tell this client its assigned ID.
-  send(ws, { type: 'welcome', userId });
+  send(ws, {
+    type: 'welcome',
+    userId
+  });
 
-  // Update both clients on connection status (e.g. "waiting" vs "connected").
+  // Update both clients on connection status.
   broadcastStatus();
 
   ws.on('message', (data) => {
     let text;
+
     try {
-      // Accept either raw text or a JSON envelope like { type: 'message', text: '...' }
+      // Accept either raw text or a JSON envelope.
       const parsed = JSON.parse(data.toString());
       text = typeof parsed.text === 'string' ? parsed.text : null;
     } catch {
@@ -85,6 +108,10 @@ wss.on('connection', (ws) => {
     if (!text || !text.trim()) return;
 
     const sender = clients.get(ws);
+
+    // Ignore messages from a connection that has already been removed.
+    if (!sender) return;
+
     const other = getOtherClient(ws);
 
     console.log(`Message from ${sender.id}: ${text}`);
@@ -97,23 +124,57 @@ wss.on('connection', (ws) => {
         timestamp: Date.now()
       });
     }
-    // If no other client is connected yet, the message is simply not relayed.
   });
 
   ws.on('close', () => {
     const info = clients.get(ws);
+
     clients.delete(ws);
-    console.log(`Client disconnected: ${info ? info.id : 'unknown'} (${clients.size}/${MAX_CLIENTS})`);
+
+    console.log(
+      `Client disconnected: ${
+        info ? info.id : 'unknown'
+      } (${clients.size}/${MAX_CLIENTS})`
+    );
 
     // Let the remaining client know their peer left.
-    const remaining = getOtherClient(ws) || [...clients.keys()][0];
+    const remaining = [...clients.keys()][0];
+
     if (remaining) {
-      send(remaining, { type: 'peer-disconnected' });
+      send(remaining, {
+        type: 'peer-disconnected'
+      });
     }
+
     broadcastStatus();
   });
 
   ws.on('error', (err) => {
-    console.error(`WebSocket error for ${userId}:`, err.message);
+    console.error(
+      `WebSocket error for ${userId}:`,
+      err.message
+    );
   });
 });
+
+// Check every 30 seconds for stale/dead connections.
+const heartbeatInterval = setInterval(() => {
+  for (const [ws, info] of clients) {
+    if (ws.isAlive === false) {
+      console.log(
+        `Terminating stale connection: ${info.id}`
+      );
+
+      ws.terminate();
+      continue;
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+```
