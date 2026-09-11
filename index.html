@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>QuickChat</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --header-bg: #161922;
+    --surface: #1b1f2a;
+    --border: #2a2f3d;
+    --text-primary: #eaecef;
+    --text-secondary: #8b92a5;
+    --accent: #4f7cff;
+    --accent-text: #ffffff;
+    --bubble-received: #232735;
+    --bubble-sent: #4f7cff;
+    --status-online: #3ddc84;
+    --status-offline: #ff5c5c;
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    display: flex;
+    justify-content: center;
+  }
+
+  /* App shell: full height on mobile, capped width on desktop */
+  #app {
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ---------- Header ---------- */
+  #app-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  #app-header .brand {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  #app-header .app-name {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+
+  #app-header .user-id {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---------- Status indicator ---------- */
+  #connection-status {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  #status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-offline); /* default state; JS will toggle to .online */
+    flex: 0 0 auto;
+  }
+
+  #status-dot.online {
+    background: var(--status-online);
+  }
+
+  #status-text.online {
+    color: var(--status-online);
+  }
+
+  /* ---------- Chat area ---------- */
+  #chat-area {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  #chat-area::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  #chat-area::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+  }
+
+  .message-row {
+    display: flex;
+    width: 100%;
+  }
+
+  .message-row.received {
+    justify-content: flex-start;
+  }
+
+  .message-row.sent {
+    justify-content: flex-end;
+  }
+
+  .bubble {
+    max-width: 75%;
+    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    font-size: 14.5px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .message-row.received .bubble {
+    background: var(--bubble-received);
+    color: var(--text-primary);
+    border-bottom-left-radius: var(--radius-sm);
+  }
+
+  .message-row.sent .bubble {
+    background: var(--bubble-sent);
+    color: var(--accent-text);
+    border-bottom-right-radius: var(--radius-sm);
+  }
+
+  .bubble .meta {
+    display: block;
+    margin-top: 4px;
+    font-size: 10.5px;
+    opacity: 0.7;
+    text-align: right;
+  }
+
+  /* Empty-state placeholder, shown until real messages arrive via JS */
+  #empty-state {
+    margin: auto;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 24px;
+  }
+
+  /* ---------- Composer (input + send) ---------- */
+  #composer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    background: var(--header-bg);
+    border-top: 1px solid var(--border);
+  }
+
+  #message-input {
+    flex: 1 1 auto;
+    resize: none;
+    max-height: 120px;
+    min-height: 40px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 14.5px;
+    font-family: inherit;
+    line-height: 1.4;
+    outline: none;
+  }
+
+  #message-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  #message-input:focus {
+    border-color: var(--accent);
+  }
+
+  #send-button {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+
+  #send-button:hover {
+    opacity: 0.9;
+  }
+
+  #send-button:active {
+    transform: scale(0.94);
+  }
+
+  #send-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Small screens: let the app fill the viewport edge-to-edge */
+  @media (max-width: 520px) {
+    #app {
+      max-width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== Header ===== -->
+  <header id="app-header">
+    <div class="brand">
+      <span class="app-name">QuickChat</span>
+      <!-- id="current-user-id" text content will be set by JS once an ID is generated -->
+      <span class="user-id" id="current-user-id">ID: not-generated-yet</span>
+    </div>
+
+    <!-- ===== Status indicator ===== -->
+    <!-- JS will later toggle the "online" class on #status-dot / #status-text
+         and update #status-text's label based on WebSocket connection state -->
+    <div id="connection-status">
+      <span id="status-dot"></span>
+      <span id="status-text">Disconnected</span>
+    </div>
+  </header>
+
+  <!-- ===== Chat area ===== -->
+  <!-- New message bubbles will be appended here by JS.
+       Example markup for a received message:
+         <div class="message-row received">
+           <div class="bubble">Hello!<span class="meta">10:32</span></div>
+         </div>
+       Example markup for a sent message:
+         <div class="message-row sent">
+           <div class="bubble">Hi there<span class="meta">10:33</span></div>
+         </div>
+  -->
+  <main id="chat-area">
+    <div id="empty-state">No messages yet. Say hello 👋</div>
+  </main>
+
+  <!-- ===== Composer ===== -->
+  <footer id="composer">
+    <textarea
+      id="message-input"
+      rows="1"
+      placeholder="Type a message..."
+      autocomplete="off"
+    ></textarea>
+    <button id="send-button" type="button" aria-label="Send message">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 20L21 12L3 4V10L16 12L3 14V20Z" fill="currentColor"/>
+      </svg>
+    </button>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------------
+  // Default server address once deployed (e.g. Render). Update this after
+  // you deploy server.js — Render gives you a URL like:
+  //   quickchat-server.onrender.com
+  // WebSocket URLs use "wss://" (secure) for that, not "https://".
+  const DEFAULT_WS_URL = 'wss://YOUR-RENDER-APP.onrender.com';
+
+  // Resolution order, so the same file works everywhere without editing:
+  //   1. ?ws=... query param (handy for local testing or the desktop app)
+  //   2. localhost fallback, only when the page itself is opened from
+  //      localhost/file:// (i.e. you're developing on your machine)
+  //   3. DEFAULT_WS_URL above (production / GitHub Pages / desktop app)
+  function resolveWsUrl() {
+    const fromQuery = new URLSearchParams(window.location.search).get('ws');
+    if (fromQuery) return fromQuery;
+
+    const isLocalDev =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.protocol === 'file:';
+    if (isLocalDev) return 'ws://localhost:8080';
+
+    return DEFAULT_WS_URL;
+  }
+
+  const WS_URL = resolveWsUrl();
+  const RECONNECT_DELAY_MS = 2000;
+
+  // ---------------------------------------------------------------------
+  // DOM references
+  // ---------------------------------------------------------------------
+  const userIdEl = document.getElementById('current-user-id');
+  const statusDot = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+  const chatArea = document.getElementById('chat-area');
+  const emptyState = document.getElementById('empty-state');
+  const messageInput = document.getElementById('message-input');
+  const sendButton = document.getElementById('send-button');
+
+  let socket = null;
+  let myUserId = null;
+
+  // ---------------------------------------------------------------------
+  // UI helpers
+  // ---------------------------------------------------------------------
+  function setStatus(label, online) {
+    statusText.textContent = label;
+    statusDot.classList.toggle('online', !!online);
+    statusText.classList.toggle('online', !!online);
+  }
+
+  function setUserId(id) {
+    myUserId = id;
+    userIdEl.textContent = 'ID: ' + id;
+  }
+
+  function formatTime(ts) {
+    const d = ts ? new Date(ts) : new Date();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function appendMessage(text, direction, ts) {
+    if (emptyState && emptyState.parentNode) {
+      emptyState.remove();
+    }
+
+    const row = document.createElement('div');
+    row.className = 'message-row ' + direction; // "sent" or "received"
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = formatTime(ts);
+    bubble.appendChild(meta);
+
+    row.appendChild(bubble);
+    chatArea.appendChild(row);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function appendSystemNote(text) {
+    const row = document.createElement('div');
+    row.className = 'message-row';
+    row.style.justifyContent = 'center';
+
+    const note = document.createElement('div');
+    note.style.fontSize = '12px';
+    note.style.color = 'var(--text-secondary)';
+    note.style.padding = '4px 0';
+    note.textContent = text;
+
+    row.appendChild(note);
+    chatArea.appendChild(row);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function autoGrowInput() {
+    messageInput.style.height = 'auto';
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+  }
+
+  // ---------------------------------------------------------------------
+  // WebSocket
+  // ---------------------------------------------------------------------
+  function connect() {
+    setStatus('Connecting…', false);
+    socket = new WebSocket(WS_URL);
+
+    socket.addEventListener('open', function () {
+      // Server still needs to send "welcome"/"status" before we know
+      // whether a peer is present; keep showing "Connecting…" briefly.
+      setStatus('Waiting for peer…', false);
+    });
+
+    socket.addEventListener('message', function (event) {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      switch (data.type) {
+        case 'welcome':
+          setUserId(data.userId);
+          break;
+
+        case 'status':
+          setStatus(data.connected ? 'Connected' : 'Waiting for peer…', data.connected);
+          break;
+
+        case 'message':
+          appendMessage(data.text, 'received', data.timestamp);
+          break;
+
+        case 'peer-disconnected':
+          setStatus('Peer left', false);
+          appendSystemNote('The other user disconnected.');
+          break;
+
+        case 'error':
+          setStatus('Disconnected', false);
+          appendSystemNote(data.message || 'An error occurred.');
+          break;
+      }
+    });
+
+    socket.addEventListener('close', function () {
+      setStatus('Disconnected', false);
+      socket = null;
+      setTimeout(connect, RECONNECT_DELAY_MS);
+    });
+
+    socket.addEventListener('error', function () {
+      // The "close" event will fire right after; let it handle reconnecting.
+    });
+  }
+
+  function sendMessage() {
+    const text = messageInput.value.trim();
+    if (!text) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    socket.send(JSON.stringify({ text }));
+    appendMessage(text, 'sent', Date.now());
+
+    messageInput.value = '';
+    autoGrowInput();
+    messageInput.focus();
+  }
+
+  // ---------------------------------------------------------------------
+  // Event listeners
+  // ---------------------------------------------------------------------
+  sendButton.addEventListener('click', sendMessage);
+
+  messageInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  messageInput.addEventListener('input', autoGrowInput);
+
+  // ---------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------
+  connect();
+})();
+</script>
+</body>
+</html>
