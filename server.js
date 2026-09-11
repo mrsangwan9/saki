@@ -5,14 +5,13 @@
 *
 * * Accepts exactly two connected clients at a time.
 * * Assigns each connected client a simple unique user ID.
-* * Relays any text message received from one client to the other.
-* * Handles connect, disconnect, and message events.
-* * Uses heartbeat checks to remove stale/dead connections.
+* * Relays text messages between the two clients.
+* * Detects stale/dead WebSocket connections.
 *
-* No database, no auth, no voice/video/WebRTC — plain text relay only.
+* No database, no auth, no voice/video/WebRTC.
   */
 
-const { WebSocketServer } = require('ws');
+const WebSocketServer = require('ws').WebSocketServer;
 
 const PORT = process.env.PORT || 8080;
 const MAX_CLIENTS = 2;
@@ -22,10 +21,10 @@ let nextUserNumber = 1;
 
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`Chat server listening on ws://localhost:${PORT}`);
+console.log('Chat server listening on ws://localhost:' + PORT);
 
 function generateUserId() {
-const id = `user-${nextUserNumber}`;
+const id = 'user-' + nextUserNumber;
 nextUserNumber += 1;
 return id;
 }
@@ -37,28 +36,37 @@ ws.send(JSON.stringify(payload));
 }
 
 function getOtherClient(ws) {
-for (const [clientWs] of clients) {
-if (clientWs !== ws) return clientWs;
+for (const clientWs of clients.keys()) {
+if (clientWs !== ws) {
+return clientWs;
 }
+}
+
 return null;
 }
 
 function broadcastStatus() {
 const bothConnected = clients.size === MAX_CLIENTS;
 
-for (const [clientWs, info] of clients) {
+for (const entry of clients) {
+const clientWs = entry[0];
+const info = entry[1];
+
+```
 send(clientWs, {
-type: 'status',
-connected: bothConnected,
-userId: info.id
+  type: 'status',
+  connected: bothConnected,
+  userId: info.id
 });
+```
+
 }
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', function (ws) {
 ws.isAlive = true;
 
-ws.on('pong', () => {
+ws.on('pong', function () {
 ws.isAlive = true;
 });
 
@@ -79,45 +87,67 @@ return;
 
 const userId = generateUserId();
 
-clients.set(ws, { id: userId });
+clients.set(ws, {
+id: userId
+});
 
 console.log(
-`Client connected: ${userId} (${clients.size}/${MAX_CLIENTS})`
+'Client connected: ' +
+userId +
+' (' +
+clients.size +
+'/' +
+MAX_CLIENTS +
+')'
 );
 
 send(ws, {
 type: 'welcome',
-userId
+userId: userId
 });
 
 broadcastStatus();
 
-ws.on('message', (data) => {
+ws.on('message', function (data) {
 let text;
 
 ```
 try {
   const parsed = JSON.parse(data.toString());
-  text = typeof parsed.text === 'string' ? parsed.text : null;
-} catch {
+
+  if (typeof parsed.text === 'string') {
+    text = parsed.text;
+  } else {
+    text = null;
+  }
+} catch (error) {
   text = data.toString();
 }
 
-if (!text || !text.trim()) return;
+if (!text || !text.trim()) {
+  return;
+}
 
 const sender = clients.get(ws);
 
-if (!sender) return;
+if (!sender) {
+  return;
+}
 
 const other = getOtherClient(ws);
 
-console.log(`Message from ${sender.id}: ${text}`);
+console.log(
+  'Message from ' +
+  sender.id +
+  ': ' +
+  text
+);
 
 if (other) {
   send(other, {
     type: 'message',
     from: sender.id,
-    text,
+    text: text,
     timestamp: Date.now()
   });
 }
@@ -125,19 +155,23 @@ if (other) {
 
 });
 
-ws.on('close', () => {
+ws.on('close', function () {
 const info = clients.get(ws);
 
 ```
 clients.delete(ws);
 
 console.log(
-  `Client disconnected: ${
-    info ? info.id : 'unknown'
-  } (${clients.size}/${MAX_CLIENTS})`
+  'Client disconnected: ' +
+  (info ? info.id : 'unknown') +
+  ' (' +
+  clients.size +
+  '/' +
+  MAX_CLIENTS +
+  ')'
 );
 
-const remaining = [...clients.keys()][0];
+const remaining = Array.from(clients.keys())[0];
 
 if (remaining) {
   send(remaining, {
@@ -150,23 +184,32 @@ broadcastStatus();
 
 });
 
-ws.on('error', (err) => {
+ws.on('error', function (err) {
 console.error(
-`WebSocket error for ${userId}:`,
+'WebSocket error for ' +
+userId +
+': ' +
 err.message
 );
 });
 });
 
-const heartbeatInterval = setInterval(() => {
-for (const [ws, info] of clients) {
-if (ws.isAlive === false) {
-console.log(`Terminating stale connection: ${info.id}`);
-ws.terminate();
-continue;
-}
+const heartbeatInterval = setInterval(function () {
+for (const entry of clients) {
+const ws = entry[0];
+const info = entry[1];
 
 ```
+if (ws.isAlive === false) {
+  console.log(
+    'Terminating stale connection: ' +
+    info.id
+  );
+
+  ws.terminate();
+  continue;
+}
+
 ws.isAlive = false;
 ws.ping();
 ```
@@ -174,6 +217,6 @@ ws.ping();
 }
 }, 30000);
 
-wss.on('close', () => {
+wss.on('close', function () {
 clearInterval(heartbeatInterval);
 });
