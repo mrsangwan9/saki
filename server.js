@@ -59,12 +59,12 @@ wss.on('connection', function (ws) {
   if (clients.size >= MAX_CLIENTS) {
     send(ws, {
       type: 'error',
-      message: 'Chat room is full (2 users max).'
+      message: 'just wait..connecting...'
     });
 
     ws.close(1008, 'Room full');
 
-    console.log('Rejected connection: room already has 2 users.');
+    console.log('Rejected connection: wait if you repone the app.');
     return;
   }
 
@@ -187,7 +187,7 @@ const heartbeatInterval = setInterval(function () {
     ws.isAlive = false;
     ws.ping();
   }
-}, 30000);
+}, 5000);
 
 wss.on('close', function () {
   clearInterval(heartbeatInterval);
